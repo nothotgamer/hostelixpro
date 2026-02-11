@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+      - PORT=3000
+      - DATABASE_URL=postgresql://hostel:changeme@db:5432/hostelixpro
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=dev-secret-key
+      - JWT_SECRET_KEY=dev-jwt-key
+      - CORS_ORIGINS=*
+    depends_on:
+      - db
+      - redis
+    command: >
+      sh -c "python scripts/wait_for_db.py &&
+             python create_tables.py &&
+             python scripts/seed_db.py &&
+             gunicorn --bind 0.0.0.0:3000 --workers 4 --timeout 120 app:app"
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=hostel
+      - POSTGRES_PASSWORD=changeme
+      - POSTGRES_DB=hostelixpro
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

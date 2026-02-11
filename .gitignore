@@ -1,0 +1,40 @@
+# General
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Backend (Python)
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/venv/
+backend/.venv/
+backend/env/
+backend/.env
+backend/instance/
+backend/*.db
+backend/migrations/versions/
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+
+# Frontend (Flutter)
+hostelixpro/.dart_tool/
+hostelixpro/.packages
+hostelixpro/.pub/
+hostelixpro/build/
+hostelixpro/ios/Flutter/App.framework
+hostelixpro/ios/Flutter/Flutter.framework
+hostelixpro/ios/Pods/
+hostelixpro/ios/.symlinks/
+hostelixpro/android/.gradle
+hostelixpro/android/local.properties
+hostelixpro/linux/flutter/ephemeral
+hostelixpro/macos/Flutter/ephemeral
+hostelixpro/windows/flutter/ephemeral
+hostelixpro/*.iml
+hostelixpro/pubspec.lock
+
+# Docker
+postgres_data/

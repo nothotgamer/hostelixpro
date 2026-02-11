@@ -1,0 +1,443 @@
+{
+  "task": "Generate a complete, production-ready project scaffold for the 'Hostelix Pro / Hostel Discipline' system using Antigravity AI. Include frontend, backend, DB schema, migrations, tests, Docker, sample seed data, and full workflow definitions. The generator must produce runnable code (Flask backend + Flutter frontend), CI skeleton, docs, and artifacts described below.",
+  "project": {
+    "name": "Hostelix Pro - Organization & Hostel Management System",
+    "short_name": "hostelixpro",
+    "description": "Role-enforced, audit-compliant hostel discipline management system. Server-time-authority, mandatory MFA (email OTP), no chat, no AI features. Designed as modular monolith first, microservice-ready.",
+    "primary_goal": "Deliver secure, auditable, offline-capable (LAN deployable) system implementing strict discipline rules, role-based controls, immutable approvals, and backup/restore."
+  },
+  "tech_stack": {
+    "backend": {
+      "framework": "Flask (Python 3.10+)",
+      "orm": "SQLAlchemy + Alembic migrations",
+      "auth": "bcrypt for password hashing, server-side OTP (pyotp or custom) via email",
+      "api_style": "REST JSON API",
+      "worker": "RQ or Celery (optional) for background email & notifications",
+      "container": "Docker (docker-compose for local dev)"
+    },
+    "database": {
+      "dev": "SQLite (local, file-based)",
+      "prod": "PostgreSQL",
+      "migrations": "Alembic",
+      "time_zone": "UTC store timestamps (unix epoch ms) - server authoritative"
+    },
+    "frontend": {
+      "web": "Flutter (Dart) + Flutter Router + Provider or Riverpod (state)",
+      "mobile_optional": "Flutter (primary) - design same routes for web and mobile",
+      "ui_library": "Material Design (built-in) or Cupertino (choose one)",
+      "forms": "flutter_form_builder + yup or custom validation",
+      "build": "Flutter SDK (for web, mobile, desktop)"
+    },
+    "devops": {
+      "compose": "docker-compose.yml with services: app, db, redis, worker, nginx (optional)",
+      "port": 3000
+    },
+    "constraints": [
+      "No third-party cloud auth (Google, Firebase etc.)",
+      "100% open-source libraries only",
+      "All timestamps assigned by server",
+      "No realtime chat or AI features in application"
+    ]
+  },
+  "features": {
+    "core": [
+      "Email + Password login with mandatory server-side OTP (MFA)",
+      "Strict RBAC: Admin, Teacher, RoutineManager, Student",
+      "Server-authoritative timestamps (no client-side date/time input allowed)",
+      "Student daily report workflow (Wake up -> Teacher -> Admin)",
+      "Routine management: morning walk, exit request, return confirmation",
+      "Fee submission (student) -> Admin approval (immutable when approved)",
+      "Announcements (Admin->All, Teacher->Students)",
+      "Comprehensive AuditLog capturing user, action, timestamp, IP, device, reason",
+      "Backup & Restore with encrypted backup files (admin-only restore)",
+      "Soft delete by default; hard delete admin-only with audit reason"
+    ],
+    "advanced": [
+      "Rate-limiting and brute-force protection for login and OTP",
+      "NTP time sync guidance and health-check endpoint",
+      "Immutable approvals (once approved final record stored and locked)",
+      "Export reports to PDF / Excel",
+      "Exportable audit logs",
+      "Dockerized deployment and local LAN hosting support",
+      "Admin audit UI with filters and export",
+      "Role-specific dashboards and views"
+    ],
+    "out_of_scope": [
+      "Chat functionality",
+      "AI/ML features",
+      "Third-party cloud-only features (Firebase)",
+      "Client-side time authority"
+    ]
+  },
+  "workflows": {
+    "auth_mfa": [
+      "POST /api/v1/auth/login {email, password} -> verify password server-side",
+      "if valid -> create login_tx (uuid), generate OTP (6 digits), store hashed OTP and expiry server-side",
+      "send OTP to user's email via background worker",
+      "POST /api/v1/auth/verify-otp {login_tx, otp} -> verify hashed OTP + expiry",
+      "on success -> create server session or JWT with role claims, return token and expiry",
+      "all login attempts, OTP sends, OTP verifies recorded in AuditLog with IP & device"
+    ],
+    "student_daily_report": [
+      "Student clicks ‘Wake Up’ in UI -> client POST /api/v1/reports with no timestamp fields",
+      "Server creates report with server timestamp (wake_time), status PENDING_TEACHER, ensure only 1 report per 24h",
+      "Notify assigned Teacher (notification + dashboard flag)",
+      "Teacher reviews and approves -> POST /api/v1/reports/:id/approve (role=Teacher) -> status becomes PENDING_ADMIN; create audit entry with teacher_id and timestamp",
+      "Admin final approval -> POST /api/v1/reports/:id/approve-admin -> status APPROVED; audit entry stored; notifications sent to student",
+      "All transitions are immutable (status history kept) and logged"
+    ],
+    "routine_walk_exit_return": [
+      "Walk: Student POST /api/v1/routines/walk -> server timestamp saved -> status PENDING_ROUTINE_MANAGER",
+      "RoutineManager approves/rejects -> actions logged",
+      "Exit Request: Student submits reason + expected_return_duration + companions -> server timestamps request; status PENDING_ROUTINE_MANAGER",
+      "RoutineManager approves -> status APPROVED_PENDING_RETURN; student can later confirm return",
+      "Student confirms return -> server captures return_time -> status PENDING_RETURN_APPROVAL",
+      "RoutineManager approves return -> status COMPLETED; total time outside calculated by server; if late -> record violation"
+    ],
+    "fee_submission": [
+      "Student POST /api/v1/fees {month, amount, payment_proof_file} -> stored as PENDING_ADMIN",
+      "Admin reviews and approves/rejects -> approval creates immutable record if approved",
+      "Validation: only one record per (student, month) allowed; duplicates rejected"
+    ],
+    "backup_restore": [
+      "Admin triggers backup -> server creates DB dump + assets archive -> encrypt with admin passphrase -> store in backups folder and record BackupMeta in DB -> create AuditLog entry",
+      "On another device / server, Admin uses REST endpoint or UI to upload encrypted backup -> verify checksum -> decrypt after passphrase prompt -> import DB snapshot -> create AuditLog entry for restore"
+    ]
+  },
+  "api_spec": {
+    "prefix": "/api/v1",
+    "auth": {
+      "POST /auth/login": {
+        "request": {"email":"string","password":"string"},
+        "response": {"tx_id":"uuid","otp_sent":true}
+      },
+      "POST /auth/verify-otp": {
+        "request": {"tx_id":"uuid","otp":"string"},
+        "response": {"token":"jwt","expires_at":"iso"}
+      },
+      "POST /auth/logout": {"requires_auth":true}
+    },
+    "users": {
+      "GET /users": {"requires_role":"Admin","description":"List users with filters"},
+      "POST /users": {"requires_role":"Admin","payload":"create user (email,role,profile)"},
+      "PATCH /users/:id": {"requires_role":"Admin or self","payload":"update profile"},
+      "POST /users/:id/lock": {"requires_role":"Admin","payload":"reason"}
+    },
+    "reports": {
+      "POST /reports": {"role":"Student","payload":"empty (server captures timestamp)"},
+      "GET /reports": {"roles":"Teacher,Admin,RoutineManager","filters":"student_id,status,date_range"},
+      "POST /reports/:id/approve": {"role":"Teacher","notes":"optional"},
+      "POST /reports/:id/approve-admin": {"role":"Admin"}
+    },
+    "routines": {
+      "POST /routines/walk": {"role":"Student"},
+      "POST /routines/exit-requests": {"role":"Student","payload":"reason, expected_return, companions"},
+      "POST /routines/:id/approve": {"role":"RoutineManager"},
+      "POST /routines/:id/confirm-return": {"role":"Student"}
+    },
+    "fees": {
+      "POST /fees": {"role":"Student","payload":"month,amount,proof_file"},
+      "POST /fees/:id/approve": {"role":"Admin"}
+    },
+    "announcements": {
+      "POST /announcements": {"role":"Admin or Teacher (teacher only for students)"},
+      "GET /announcements": {"role":"All"}
+    },
+    "backups": {
+      "POST /backups": {"role":"Admin","action":"create encrypted backup"},
+      "POST /backups/restore": {"role":"Admin","action":"restore from uploaded file"}
+    },
+    "audit": {
+      "GET /audit": {"role":"Admin","filters":"entity,user,action,date_range"}
+    }
+  },
+  "db_schema": {
+    "users": {
+      "id":"serial primary key",
+      "email":"varchar unique not null",
+      "password_hash":"text not null",
+      "display_name":"varchar",
+      "role":"varchar not null check(role in ('admin','teacher','routine_manager','student'))",
+      "is_locked":"boolean default false",
+      "mfa_enabled":"boolean default true",
+      "created_at":"bigint not null",
+      "updated_at":"bigint",
+      "last_login_at":"bigint"
+    },
+    "students": {
+      "id":"serial primary key",
+      "user_id":"integer references users(id) unique not null",
+      "assigned_teacher_id":"integer references users(id)",
+      "room":"varchar",
+      "admission_no":"varchar unique",
+      "profile_json":"jsonb",
+      "created_at":"bigint"
+    },
+    "reports": {
+      "id":"serial primary key",
+      "student_id":"integer references students(id) not null",
+      "wake_time":"bigint not null",
+      "walk":"boolean default false",
+      "exercise":"boolean default false",
+      "late_minutes":"integer default 0",
+      "status":"varchar not null check(status in ('PENDING_TEACHER','PENDING_ADMIN','APPROVED','REJECTED'))",
+      "created_at":"bigint not null",
+      "updated_at":"bigint"
+    },
+    "report_actions": {
+      "id":"serial primary key",
+      "report_id":"integer references reports(id)",
+      "actor_id":"integer references users(id)",
+      "action":"varchar",
+      "notes":"text",
+      "timestamp":"bigint not null"
+    },
+    "routines": {
+      "id":"serial primary key",
+      "type":"varchar not null check(type in ('walk','exit','return'))",
+      "student_id":"integer references students(id)",
+      "request_time":"bigint not null",
+      "status":"varchar not null check(status in ('PENDING_ROUTINE_MANAGER','APPROVED_PENDING_RETURN','COMPLETED','REJECTED','PENDING_RETURN_APPROVAL','RETURN_REJECTED'))",
+      "payload_json":"jsonb",
+      "created_at":"bigint"
+    },
+    "fees": {
+      "id":"serial primary key",
+      "student_id":"integer references students(id)",
+      "month":"integer not null",
+      "year":"integer not null",
+      "amount":"numeric",
+      "proof_path":"varchar",
+      "status":"varchar not null check(status in ('PENDING_ADMIN','APPROVED','REJECTED'))",
+      "approved_at":"bigint"
+    },
+    "announcements": {
+      "id":"serial primary key",
+      "title":"varchar",
+      "message":"text",
+      "created_by":"integer references users(id)",
+      "visible_to":"varchar not null check(visible_to in ('all','students'))",
+      "created_at":"bigint"
+    },
+    "audit_logs": {
+      "id":"bigserial primary key",
+      "user_id":"integer",
+      "action":"varchar",
+      "entity":"varchar",
+      "entity_id":"bigint",
+      "timestamp":"bigint not null",
+      "ip":"varchar",
+      "device":"varchar",
+      "details_json":"jsonb",
+      "reason":"text"
+    },
+    "backups_meta": {
+      "id":"serial primary key",
+      "filename":"varchar",
+      "created_by":"integer",
+      "created_at":"bigint",
+      "checksum":"varchar",
+      "encrypted":"boolean default true",
+      "notes":"text"
+    },
+    "schema_version": {
+      "version":"integer primary key",
+      "applied_at":"bigint"
+    },
+    "indexes": [
+      "users(email)",
+      "students(admission_no)",
+      "reports(student_id, status, created_at)",
+      "routines(student_id, status)",
+      "fees(student_id, month, year)"
+    ]
+  },
+  "file_structure": {
+    "root": "/",
+    "backend": {
+      "path": "/backend",
+      "children": {
+        "app": {
+          "path": "/backend/app",
+          "children": [
+            "api (blueprints/controllers)",
+            "models (sqlalchemy models)",
+            "services (business logic)",
+            "schemas (pydantic or marshmallow schemas)",
+            "auth (password, OTP, session management)",
+            "utils",
+            "db (alembic migrations)",
+            "tasks (background worker)"
+          ]
+        },
+        "tests": "/backend/tests (unit & integration)",
+        "Dockerfile": "/backend/Dockerfile",
+        "docker-compose.yml": "/docker-compose.yml",
+        "alembic": "/backend/alembic (migrations folder)",
+        "requirements.txt": "/backend/requirements.txt"
+      }
+    },
+    "frontend": {
+      "path": "/frontend",
+      "children": [
+        "lib",
+        "lib/pages (Login.dart, Dashboard.dart, Reports.dart, Routines.dart, Fees.dart, Users.dart, Audit.dart, Backup.dart)",
+        "lib/components",
+        "lib/services (api_client.dart, auth_helpers.dart)",
+        "lib/state",
+        "lib/styles",
+        "pubspec.yaml",
+        "analysis_options.yaml",
+        "build/web (for web build)"
+      ]
+    },
+    "docs": {
+      "path": "/docs",
+      "files": [
+        "README.md",
+        "ARCHITECTURE.md",
+        "API_SPEC.md (OpenAPI/Swagger exported)",
+        "DATA_DICTIONARY.md",
+        "DEV_SETUP.md",
+        "USER_GUIDE.md"
+      ]
+    },
+    "scripts": {
+      "path": "/scripts",
+      "files": [
+        "seed_db.py (create admin, teacher, routine_manager, sample students)",
+        "backup_script.sh",
+        "restore_script.sh"
+      ]
+    }
+  },
+  "migrations_and_seed": {
+    "migrations": {
+      "provide": "Alembic SQL migration files v1__create_tables.sql matching db_schema",
+      "migration_runner": "manage.py db upgrade or flask db upgrade (documented in DEV_SETUP.md)"
+    },
+    "seed": {
+      "seed_file": "seed/sample_seed.sql or seed/sample_seed.db",
+      "seed_contents": "three users ([admin@example.com](mailto:admin@example.com), [teacher@example.com](mailto:teacher@example.com), [routine@example.com](mailto:routine@example.com)) + 5 sample students + 10 sample reports and routines"
+    }
+  },
+  "tests_and_qc": {
+    "unit_tests": [
+      "test_auth_password_hashing",
+      "test_otp_generation_and_verification",
+      "test_report_creation_1_per_24h",
+      "test_late_calculation",
+      "test_fee_duplicate_prevention",
+      "test_backup_create_and_restore"
+    ],
+    "integration_tests": [
+      "login_mfa_flow_test",
+      "report_workflow_end_to_end",
+      "routine_exit_return_flow_test",
+      "backup_restore_roundtrip_test"
+    ],
+    "qa_checklist": [
+      "verify server assigns all timestamps",
+      "verify account lockout after failed attempts",
+      "verify report status transitions and immutability after approve",
+      "verify backup encryption and checksum"
+    ]
+  },
+  "ci_cd": {
+    "pipeline": {
+      "github_actions": [
+        "Lint Python & Dart",
+        "Run backend unit tests",
+        "Run frontend unit tests",
+        "Build docker images (optional)",
+        "Publish artifacts (optional)"
+      ]
+    },
+    "branches": ["main","dev","feature/*"]
+  },
+  "docker_compose": {
+    "services": {
+      "app": {
+        "build": "./backend",
+        "ports": ["3000:3000"],
+        "depends_on": ["db","redis"]
+      },
+      "db": {
+        "image": "postgres:14",
+        "environment": {"POSTGRES_DB":"hostelixpro","POSTGRES_USER":"hostel","POSTGRES_PASSWORD":"changeme"},
+        "volumes": ["db_data:/var/lib/postgresql/data"]
+      },
+      "redis": {"image":"redis:6"},
+      "worker": {"build":"./backend","command":"rq worker default"}
+    },
+    "volumes": ["db_data"]
+  },
+  "security_and_operational": {
+    "mfa": {
+      "otp_length": 6,
+      "expiry_seconds": 300,
+      "resend_limit": 3,
+      "rate_limit_window_seconds": 300
+    },
+    "password_policy": {
+      "min_length": 10,
+      "require_upper": true,
+      "require_digit": true,
+      "require_symbol": false
+    },
+    "brute_force": {
+      "max_failed_attempts": 5,
+      "lockout_duration_seconds": 1800
+    },
+    "backup": {
+      "default_schedule": "daily",
+      "encryption": "AES-256 with admin passphrase",
+      "retention_days": 90
+    },
+    "time_sync": {
+      "recommendation": "NTP synchronization on server; health-check endpoint to report drift"
+    }
+  },
+  "acceptance_criteria": {
+    "functional": [
+      "MFA login works and logs OTP events",
+      "Student cannot set date/time; all timestamps are server generated",
+      "Report workflow reaches APPROVED via Teacher->Admin approvals with audit logs",
+      "Routine exit and return flows produce auditable time calculations",
+      "Fee approvals are unique per student-month and immutable after approval",
+      "Admin can create encrypted backups and restore them successfully"
+    ],
+    "non_functional": [
+      "Dashboard loads < 3s on a mid-range VM",
+      "Basic list pagination queries < 250ms for 10k simulated rows",
+      "All exported backups verify checksum and decrypt correctly"
+    ]
+  },
+  "developer_instructions_for_ai": {
+    "priority": "Follow strict server-side timestamping, RBAC, and audit logging rules exactly. Do not allow client-supplied timestamps. Use secure defaults if unclear. Use Alembic for migrations. Seed DB with provided sample users. Include detailed README and DEV_SETUP.md with exact startup steps.",
+    "code_style": "PEP8 for Python, Dart style guide for frontend. Use type hints and docstrings.",
+    "test_coverage": "Provide unit tests for critical business logic.",
+    "deliverables": [
+      "Complete repo tree (backend, frontend, docs, scripts)",
+      "Docker Compose and Dockerfiles",
+      "Alembic migrations and seed DB",
+      "Postman or OpenAPI spec",
+      "Sample encrypted backup file (with password 'testpass' documented)"
+    ],
+    "errors_and_recovery": "When generating endpoints that accept file uploads (payment proof, backup restore), include validation and atomic operations; show rollback logic in pseudocode/comments where code generation is not deterministic."
+  },
+  "output_format": {
+    "preferred": "zip containing project root or git repo with commits (recommended)",
+    "alternatives": ["GitHub repo skeleton URL", "tar.gz archive"]
+  },
+  "time_estimate": {
+    "mvp_monolith": "120-160 hours (3-4 weeks full-time solo with AI assistance)",
+    "hardening_and_qa": "40-60 hours",
+    "microservice_split": "160-300 hours (optional, post-MVP)"
+  },
+  "notes": [
+    "This JSON prompt is authoritative: the generator must follow RBAC, server-time authority, and audit rules strictly.",
+    "If any ambiguity arises, default to security and immutability (require admin approval for destructive actions).",
+    "Do not add chat or AI features; do not rely on cloud-only services unless explicitly allowed later."
+  ]
+}
