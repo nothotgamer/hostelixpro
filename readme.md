@@ -819,3 +819,4 @@ Every authenticated user can manage their own account:
 ---
 
 *This document was generated as part of the Hostelix Pro v1.0 release. For setup instructions, refer to the [Developer Setup Guide](DEV_SETUP.md) and the [Deployment Guide](../docs/deployment_guide.md).*
+
